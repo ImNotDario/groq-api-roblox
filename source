@@ -1,0 +1,176 @@
+-- Define global constants
+local GROQ_API_KEY = _G.apikey
+local GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+local MODEL = ""
+tools = {}
+toolcallback = {}
+groq = {}
+
+body = {
+    ["model"] = MODEL,
+    ["messages"] = {
+        ["role"] = "system",
+        ["content"] = ""
+    },
+    ["tools"] = tools,
+    ["tool_choice"] = "auto",
+    ["parallel_tool_calls"] = false
+}
+
+-- AIObject: Processes AI response
+local AIObject = {}
+AIObject.__index = AIObject
+function AIObject.new(response)
+    local self = setmetatable({}, AIObject)
+    local http = game:GetService("HttpService")
+    local caiarray = http:JSONDecode(response)
+    
+    -- Handle errors in response
+    self.StopReason = caiarray.choices[1].finish_reason
+    if self.StopReason == "tool_calls" then
+        self.ToolsUse = caiarray.choices[1].message.tool_calls
+    else
+        self.AIResponse = caiarray.choices[1].message.content
+    end
+    self.__tostring = self.AIResponse
+    return self
+end
+
+-- ToolParameterGen1: Define tool parameters
+local ToolParameterGen1 = {}
+ToolParameterGen1.__index = ToolParameterGen1
+function ToolParameterGen1.new(name, type, desc)
+    local self = setmetatable({}, ToolParameterGen1)
+    self[name] = {type = type, description = desc}
+    return self
+end
+
+-- ToolParameterGen2: Define tool parameters with enums
+local ToolParameterGen2 = {}
+ToolParameterGen2.__index = ToolParameterGen2
+function ToolParameterGen2.new(name, type, enm)
+    local self = setmetatable({}, ToolParameterGen2)
+    self[name] = {type = type, enum = enm}
+    return self
+end
+
+-- SetModel: Sets the model to be used in the request
+function groq:SetModel(model)
+    MODEL = model
+    body.model = model
+    return 0
+end
+
+-- SetSystemPrompt: Sets the system message in the body
+function groq:SetSystemPrompt(prompt)
+    -- Ensure body["messages"] is initialized and has an element
+    if not body["messages"] then
+        body["messages"] = {}
+    end
+    if not body["messages"][1] then
+        body["messages"][1] = {}
+    end
+    body["messages"][1]["role"] = "system"
+    body["messages"][1]["content"] = prompt
+    return 0
+end
+
+-- RequestAI: Sends request to the API
+function groq:RequestAI(message, max_tokens, temp, seed, stop)
+    -- Handle default parameters
+    local http = game:GetService("HttpService")
+    max_tokens = max_tokens or 256
+    temp = temp or 1
+    seed = seed or os.time()
+    stop = stop or ""
+
+    -- Update request body with provided params
+    body["max_tokens"] = max_tokens
+    body["temperature"] = temp
+    body["seed"] = seed
+    body["stop"] = stop
+    body["tools"] = tools
+    table.insert(body.messages, {
+        ["role"] = "user",
+        ["content"] = message
+    })
+
+    -- Send the request (assuming 'request' is defined elsewhere)
+    local req = request({
+        Url = GROQ_URL,
+        Method = "POST",
+        Body = http:JSONEncode(body),
+        Headers = {
+            ["Content-Type"] = "application/json",
+            ["Authorization"] = string.format("Bearer %s", GROQ_API_KEY)
+        }
+    })
+    print(req.Body)
+    -- Create the AIObject from the response
+    local aiobj = AIObject.new(req.Body)
+
+    -- Check stop reason and handle response
+    if aiobj.StopReason == "stop" then
+        table.insert(body.messages, {["role"] = "assistant", ["content"] = aiobj.AIResponse})
+    elseif aiobj.StopReason == "tool_calls" then
+        -- Here we should handle tool calls (not fully implemented)
+        table.insert(body.messages, {["role"] = "assistant", ["tool_calls"] = aiobj.ToolsUse})
+        for k, v in ipairs(toolcallback) do
+            if v.name == aiobj.ToolsUse[1]["function"].name then
+                local toolArgs = http:JSONDecode(aiobj.ToolsUse[1]["function"].arguments)  -- Example: {"location": "New York, NY"}
+                
+                -- If arguments are in the form of a table, pass them as unpacked arguments
+                if type(toolArgs) == "table" then
+                    tool.callback(unpack(toolArgs))  -- Unpacks the arguments into the callback
+                else
+                    -- If there are no arguments, simply call the callback
+                    tool.callback()
+                end
+            end
+        end        
+    end
+    -- Return the processed AI response object
+    return aiobj
+end
+
+-- CreateTool: Adds a new tool with parameters and callback
+function groq:CreateTool(name, desc, params, required, callback)
+    params = params or {}
+    required = required or {}
+    callback = callback or function() end
+    
+    -- Add tool to tools list
+    table.insert(tools, {
+        ["type"] = "function",
+        ["function"] = {
+            ["name"] = name,
+            ["description"] = desc,
+            ["parameters"] = {
+                ["type"] = "object",
+                ["properties"] = params,
+                ["required"] = required
+            }
+        }
+    })
+
+    -- Add callback for the tool
+    table.insert(toolcallback, {
+        ["name"] = name,
+        ["callback"] = callback
+    })
+end
+
+function groq:ResetChats()
+    local system = body.messages[1].content
+    body.messages = {
+        {
+            ["role"] = "system",
+            ["content"] = system
+        }
+    }
+end
+
+-- request is set by external framework --
+-- keep model global --
+
+return groq
