@@ -106,7 +106,6 @@ function groq:RequestAI(message, max_tokens, temp, seed, stop)
         }
     })
     print(req.Body)
-    setclipboard(req.Body)
     -- Create the AIObject from the response
     local aiobj = AIObject.new(req.Body)
 
