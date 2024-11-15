@@ -125,7 +125,7 @@ function groq:RequestAI(message, max_tokens, temp, seed, stop)
                     return args
                 end
                 local toolArgs = extractArgs(http:JSONDecode(aiobj.ToolsUse[1]["function"].arguments))  -- Example: {"location": "New York, NY"}
-                table.insert(["role"] = "tool", ["content"] = tool.callback(unpack(toolArgs)), ["tool_call_id"] = aiobj.ToolsUse[1].id)  -- Unpacks the arguments into the callback
+                table.insert(body.messages, {["role"] = "tool", ["content"] = tool.callback(unpack(toolArgs)), ["tool_call_id"] = aiobj.ToolsUse[1].id})  -- Unpacks the arguments into the callback
             end
         end        
     end
