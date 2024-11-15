@@ -117,15 +117,15 @@ function groq:RequestAI(message, max_tokens, temp, seed, stop)
         table.insert(body.messages, {["role"] = "assistant", ["tool_calls"] = aiobj.ToolsUse})
         for k, v in ipairs(toolcallback) do
             if v.name == aiobj.ToolsUse[1]["function"].name then
-                local toolArgs = http:JSONDecode(aiobj.ToolsUse[1]["function"].arguments)  -- Example: {"location": "New York, NY"}
-                
-                -- If arguments are in the form of a table, pass them as unpacked arguments
-                if type(toolArgs) == "table" then
-                    tool.callback(unpack(toolArgs))  -- Unpacks the arguments into the callback
-                else
-                    -- If there are no arguments, simply call the callback
-                    tool.callback()
+                local function extractArgs(argTable)
+                    local args = {}
+                    for _, v in pairs(argTable) do
+                        table.insert(args, v)
+                    end
+                    return args
                 end
+                local toolArgs = extractArgs(http:JSONDecode(aiobj.ToolsUse[1]["function"].arguments))  -- Example: {"location": "New York, NY"}
+                table.insert(["role"] = "tool", ["content"] = tool.callback(unpack(toolArgs)), ["tool_call_id"] = aiobj.ToolsUse[1].id)  -- Unpacks the arguments into the callback
             end
         end        
     end
